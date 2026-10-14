@@ -7,10 +7,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * Equivalente a las dos Lambdas pero dentro del BFF (solo con RabbitMQ).
- * Los listeners NO contienen lógica: delegan en los mismos servicios que usa el resto de la app.
- */
+
 @Component
 @ConditionalOnProperty(name = "messaging.provider", havingValue = "rabbit")
 public class RabbitInformeListeners {
@@ -23,13 +20,11 @@ public class RabbitInformeListeners {
         this.noticeService = noticeService;
     }
 
-    /** Cola "informe": genera el informe (equivale a Lambda A). */
     @RabbitListener(queues = "${messaging.rabbit.queue-informe}")
     public void generar(InformeEvent evento) {
         informeService.generar(evento.eventId());
     }
 
-    /** Cola "db-informe": registra la notificación (equivale a Lambda B). */
     @RabbitListener(queues = "${messaging.rabbit.queue-db}")
     public void notificar(InformeEvent evento) {
         noticeService.registrarDesdeEvento(evento);

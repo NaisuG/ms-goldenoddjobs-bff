@@ -19,10 +19,6 @@ public class NoticeController {
         this.noticeService = noticeService;
     }
 
-    /**
-     * Endpoint de la PROPIA app que llama la Lambda B. Protegido por x-api-secret (ApiSecretFilter).
-     * 201 = notificación creada, 200 = evento duplicado (ya procesado, se ignora).
-     */
     @PostMapping("/notice")
     public ResponseEntity<Map<String, Object>> notice(@RequestBody @Valid NoticeRequest req) {
         boolean creada = noticeService.registrar(req);

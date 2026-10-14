@@ -1,57 +1,54 @@
 # ms-goldenoddjobs-bff
 
-BFF (Backend For Frontend) de **Golden-Oddjobs**. Es la puerta de entrada del flujo **asíncrono de informes y notificaciones**: recibe la petición del front, la encola en un broker y responde de inmediato, sin esperar a que el trabajo termine.
+BFF (Backend For Frontend) de **Golden-Oddjobs**. Recibe la petición de generar un informe, la publica en un broker y responde de inmediato; el trabajo pesado lo hacen dos Lambdas de forma asíncrona.
 
-Proyecto del ramo **Desarrollo Cloud Native I (DSY1107)** — Duoc UC.
+Proyecto del ramo **Desarrollo Cloud Native I (DSY1107)**, Duoc UC.
 
-## Qué hace
+## Flujo
 
-1. El usuario hace clic en **"Generar informe"** (front en Vercel).
-2. La petición pasa por **API Gateway** (valida el JWT de Cognito) y llega a este BFF en la EC2.
-3. El BFF guarda el informe como `PENDIENTE`, **publica un evento** en el broker y responde `202 — Solicitud recibida con éxito`.
-4. El broker entrega el mismo evento a **dos colas**; cada una tiene su consumidor:
+1. El **administrador** pulsa "Generar informe" en el front (Vercel).
+2. La petición pasa por **API Gateway**, que valida el JWT de Cognito e inyecta el header secreto `x-api-secret`.
+3. El **BFF** (EC2) comprueba que el token pertenece al grupo `ADMIN`, guarda el informe como `PENDIENTE`, publica un evento en **SNS** y responde `202 Solicitud recibida con éxito`.
+4. SNS entrega el mismo evento a **dos colas SQS**:
 
-| Cola | Consumidor | Trabajo |
+| Cola | Lambda | Trabajo |
 |---|---|---|
-| A | Lambda A (`lambda-a-generar-informe`) | Genera el informe y lo marca `GENERADO` en Supabase |
-| B | Lambda B (`lambda-b-notificar`) | Hace `POST /api/notice` a esta misma app para crear la notificación |
-
-5. El front consulta `GET /api/informes` y `GET /api/notificaciones` y muestra el resultado.
+| 1 | `informe-registrar` (`lambdas/lambda-1-registrar-solicitud`) | Guarda en Supabase **quién** pidió el informe y **cuándo** (tabla `registro_informe`) |
+| 2 | `informe-generar` (`lambdas/lambda-2-generar-informe`) | Lee Supabase, genera el informe en **HTML**, lo **envía por correo** (SES) y marca el informe `GENERADO` |
 
 ```mermaid
 flowchart LR
-    F["Front (Vercel)"] -- "JWT" --> G["API Gateway<br/>JWT + x-api-secret"]
-    G --> B["BFF (EC2)<br/>/api/health · /api/informes<br/>/api/notice · /api/notificaciones"]
-    B -- "publica evento" --> S(("SNS<br/>informe-topic"))
-    S --> QA["SQS A"]
-    S --> QB["SQS B"]
-    QA --> LA["Lambda A"]
-    QB --> LB["Lambda B"]
-    LA -- "REST" --> DB[("Supabase")]
+    F["Front (Vercel)"] -- "JWT" --> G["API Gateway<br/>JWT Cognito + x-api-secret"]
+    G --> B["BFF (EC2)<br/>solo ADMIN"]
+    B -- "evento" --> S(("SNS"))
+    S --> Q1["SQS 1"]
+    S --> Q2["SQS 2"]
+    Q1 --> L1["Lambda 1<br/>registra usuario + fecha"]
+    Q2 --> L2["Lambda 2<br/>genera HTML + correo"]
+    L1 --> DB[("Supabase")]
+    L2 --> DB
+    L2 --> M["Amazon SES"]
     B --> DB
-    LB -- "POST /api/notice<br/>x-api-secret" --> G
 ```
 
-## Broker "plug and play"
+## Seguridad
 
-El código solo conoce la interfaz `InformePublisher`. Cambiar de broker es cambiar **una variable**:
-
-| `MESSAGING_PROVIDER` | Publica en | Quién consume |
-|---|---|---|
-| `sns` (por defecto) | Topic SNS → fanout a 2 colas SQS | 2 Lambdas |
-| `rabbit` | Exchange fanout `informe` (RabbitMQ / Amazon MQ) → colas `informe` y `db-informe` | 2 `@RabbitListener` dentro del BFF |
-
-La lógica (generar informe, registrar notificación) vive en `InformeService` y `NoticeService`; los listeners y las Lambdas solo la invocan. Ambos modos usan el **mismo evento JSON** (`InformeEvent`) y ambos son **idempotentes** por `eventId` (si el broker entrega un mensaje dos veces, no se duplica nada).
+- **API Gateway** valida el JWT de Cognito antes de dejar pasar la petición.
+- **El BFF solo acepta tráfico del Gateway**: con `BFF_ENFORCE_SECRET_ON_ALL=true` cualquier `/api/**` (menos `/api/health`) sin el header `x-api-secret` correcto recibe `401`. El Gateway agrega ese header con *parameter mapping* en las integraciones del BFF. La comparación es en tiempo constante.
+- **El BFF vuelve a validar el JWT** (firma, issuer, `client_id`, `token_use=access`) y exige el grupo `ADMIN` en `/api/informes` (`403` para cualquier otro rol).
+- Credenciales de Supabase y AWS solo por variables de entorno.
 
 ## Endpoints
 
 | Método | Ruta | Protección | Respuesta |
 |---|---|---|---|
-| GET | `/api/health` | Pública | `200` con estado y broker activo |
-| POST | `/api/informes` | JWT (cualquier rol) | `202` "Solicitud recibida con éxito" |
-| GET | `/api/informes` | JWT (ADMIN ve todos, el resto los suyos) | `200` lista |
-| POST | `/api/notice` | Header `x-api-secret` (sin JWT) | `201` creada · `200` duplicado · `401` secreto inválido |
-| GET | `/api/notificaciones` | JWT | `200` notificaciones del usuario |
+| GET | `/api/health` | Pública | `200` con estado y broker |
+| POST | `/api/informes` | JWT + grupo `ADMIN` + `x-api-secret` | `202` "Solicitud recibida con éxito" |
+| GET | `/api/informes` | JWT + grupo `ADMIN` + `x-api-secret` | `200` lista de informes |
+
+`/api/notice` y `/api/notificaciones` siguen en el código (fase anterior) pero ya no forman parte del flujo ni se publican en el Gateway.
+
+Cuerpo opcional de `POST /api/informes`: `{ "email": "...", "nombre": "..." }`. El front lo envía desde el ID token porque el access token de Cognito no trae el correo. Si el token trae `email`, tiene prioridad.
 
 ## Evento
 
@@ -61,94 +58,77 @@ La lógica (generar informe, registrar notificación) vive en `InformeService` y
   "tipo": "INFORME_SOLICITADO",
   "informeId": 7,
   "solicitanteSub": "<sub de Cognito>",
-  "email": "usuario@correo.cl",
+  "solicitanteNombre": "Ana Admin",
+  "email": "ana@correo.cl",
   "tipoInforme": "RESUMEN_GENERAL",
   "solicitadoEn": "2026-10-14T13:00:00Z"
 }
 ```
 
-## Seguridad
+Ambas Lambdas son idempotentes por `eventId` y usan `ReportBatchItemFailures`: si SQS entrega un mensaje dos veces no se duplica la fila ni el correo, y si algo falla solo se reintenta ese mensaje.
 
-- JWT de Cognito validado igual que en los otros microservicios (firma, issuer, `client_id` + `token_use=access`).
-- `/api/notice` no tiene usuario: lo protege el header `x-api-secret` (comparación en tiempo constante). Lo llama la Lambda B.
-- `BFF_ENFORCE_SECRET_ON_ALL=true` hace que **todo** `/api/**` (menos `/health`) exija el secreto, para que la EC2 solo acepte tráfico que pasó por API Gateway.
-- **Importante:** API Gateway debe inyectar `x-api-secret` en las integraciones protegidas por JWT, pero **nunca** en la de `/api/notice` (la ruta es pública: si el Gateway pusiera el secreto, cualquiera lo obtendría). En `/api/notice` el secreto lo envía la Lambda B.
+## Broker intercambiable
+
+El código solo conoce la interfaz `InformePublisher`. `MESSAGING_PROVIDER=sns` (por defecto) publica en SNS. `MESSAGING_PROVIDER=rabbit` publica en un exchange RabbitMQ y los listeners del propio BFF hacen el trabajo; ese modo conserva el comportamiento de la fase anterior y **no envía correo**.
 
 ## Variables de entorno
 
-Ver `.env.example`. Las del Learner Lab (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`) cambian en cada sesión.
+Ver `.env.example`. Las credenciales del Learner Lab (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`) cambian en cada sesión.
 
-## Correr en local
-
-```bash
-cp .env.example .env        # completa los valores
-mvn spring-boot:run          # requiere las variables exportadas
-curl http://localhost:8083/api/health
-```
-
-Con Docker (en la EC2 se levanta junto a los otros servicios, ver `ms-goldenoddjobs-usuarios/infra/docker-compose.yml`):
+## Correr y probar
 
 ```bash
-docker build -t bff . && docker run --env-file .env -p 8083:8083 bff
+cp .env.example .env
+mvn test                          # pruebas Java
+node lambdas/_test/run.mjs        # pruebas de las Lambdas, sin AWS
+mvn spring-boot:run               # con las variables exportadas
 ```
 
-Pruebas unitarias: `mvn test`. Pruebas de las Lambdas sin AWS: `node lambdas/_test/run.mjs`.
+En la EC2 se levanta junto a los otros servicios con `ms-goldenoddjobs-usuarios/infra/docker-compose.yml`.
 
 ## Montaje en AWS (Learner Lab)
 
 ### 1. Supabase
-Ejecuta `db/schema.sql` en **SQL Editor**. Anota la *Project URL* (`https://<ref>.supabase.co`) y la **service_role key** (Settings → API) para la Lambda A.
+Ejecuta `db/schema.sql` en **SQL Editor** (crea `informe`, `registro_informe` y `notificacion`). Anota la Project URL y la **service_role key**.
 
 ### 2. SNS + 2 colas SQS
-1. **SNS → Topics → Create topic** → tipo *Standard*, nombre `informe-topic`. Copia el ARN a `SNS_TOPIC_ARN`.
-2. **SQS → Create queue** (Standard) dos veces: `informe-cola-a` e `informe-cola-b`. *Visibility timeout* = 60 s.
-3. En **cada cola** → pestaña *SNS subscriptions* → **Subscribe to Amazon SNS topic** → elige `informe-topic`. (Hacerlo desde SQS agrega solo la política que permite a SNS escribir en la cola.)
-4. Opcional: en cada suscripción activa *Raw message delivery*. Las Lambdas funcionan con y sin ella.
+1. Topic *Standard* `informe-topic`. Su ARN va en `SNS_TOPIC_ARN`.
+2. Colas *Standard* `informe-cola-1` e `informe-cola-2` (visibility timeout 60 s).
+3. En **cada cola** → *SNS subscriptions* → suscribirla a `informe-topic`.
 
-### 3. Lambdas (en el Lab solo se crean desde blueprint)
-Para cada una: **Lambda → Create function → Use a blueprint → "Process messages in Amazon SQS"**, runtime Node.js 20.x, rol existente **LabRole**.
+### 3. Amazon SES
+En **SES → Verified identities** verifica el correo remitente (`MAIL_FROM`) y, mientras la cuenta esté en *sandbox*, también el correo del destinatario. Cada correo recibe un mensaje de verificación que hay que aceptar.
 
-| Función | Cola (trigger) | Código | Variables de entorno |
+### 4. Lambdas (en el Lab se crean desde blueprint "Process messages in Amazon SQS", Node.js 20.x, rol **LabRole**)
+
+| Función | Cola (trigger) | Código | Variables |
 |---|---|---|---|
-| `informe-generar` | `informe-cola-a` | `lambdas/lambda-a-generar-informe/index.mjs` | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` |
-| `informe-notificar` | `informe-cola-b` | `lambdas/lambda-b-notificar/index.mjs` | `NOTICE_URL`, `API_SECRET` |
+| `informe-registrar` | `informe-cola-1` | `lambdas/lambda-1-registrar-solicitud/index.mjs` | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` |
+| `informe-generar` | `informe-cola-2` | `lambdas/lambda-2-generar-informe/index.mjs` | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `MAIL_FROM`, `MAIL_TO` (opcional) |
 
-Después de crearlas: pega el código en `index.mjs` (handler `index.handler`) → **Deploy**. En el trigger SQS activa **Report batch item failures** y fija *Batch size* en 1–5. `NOTICE_URL` es la URL pública de API Gateway terminada en `/api/notice`.
+Pega el código en `index.mjs` → **Deploy**. Timeout 30 s. En cada trigger activa **Report batch item failures**.
 
-### 4. API Gateway
-Agrega las rutas al API existente (cada una con **su propia integración** al path completo, como en los otros servicios):
+### 5. API Gateway
 
 | Ruta | Integración | Authorizer JWT | Parameter mapping |
 |---|---|---|---|
-| `GET /api/health` | `http://<IP_EC2>:8083/api/health` | No | — |
+| `GET /api/health` | `http://<IP_EC2>:8083/api/health` | No | |
 | `POST /api/informes` | `http://<IP_EC2>:8083/api/informes` | Sí | Overwrite header `x-api-secret` |
 | `GET /api/informes` | `http://<IP_EC2>:8083/api/informes` | Sí | Overwrite header `x-api-secret` |
-| `GET /api/notificaciones` | `http://<IP_EC2>:8083/api/notificaciones` | Sí | Overwrite header `x-api-secret` |
-| `POST /api/notice` | `http://<IP_EC2>:8083/api/notice` | **No** | **Ninguno** (la Lambda B envía el secreto) |
 
-CORS del API: orígenes = `http://localhost:5173` + dominio de Vercel; métodos `GET, POST, OPTIONS`; headers `authorization, content-type`.
-Abre el puerto **8083** en el Security Group de la EC2.
+CORS: orígenes `http://localhost:5173` + dominio de Vercel; métodos `GET, POST, OPTIONS`; headers `authorization, content-type`. Abre el puerto **8083** en el Security Group.
 
-### 5. Verificar la cadena
+### 6. Verificar
 
 ```bash
 API=https://<api-id>.execute-api.us-east-1.amazonaws.com
-
-curl -i $API/api/health                                   # 200, "broker":"sns"
-curl -i -X POST $API/api/informes                         # 401 (sin token)
-curl -i -X POST $API/api/notice -H 'Content-Type: application/json' -d '{}'   # 401 (sin x-api-secret)
-curl -i -X POST $API/api/informes -H "Authorization: Bearer $TOKEN"           # 202 Solicitud recibida con éxito
-curl -s $API/api/informes -H "Authorization: Bearer $TOKEN"                   # estado GENERADO tras unos segundos
-curl -s $API/api/notificaciones -H "Authorization: Bearer $TOKEN"             # notificación creada por la Lambda B
+curl -i $API/api/health                                          # 200
+curl -i -X POST $API/api/informes                                # 401 sin token
+curl -i -X POST $API/api/informes -H "Authorization: Bearer $TOKEN_NO_ADMIN"  # 403
+curl -i -X POST $API/api/informes -H "Authorization: Bearer $TOKEN_ADMIN" -H "Content-Type: application/json" -d '{}'  # 202
 ```
 
-Evidencia para mostrar en la defensa: logs de ambas Lambdas en CloudWatch, mensajes en las dos colas SQS y la fila en `informe` / `notificacion` de Supabase.
-
-## Cambiar a RabbitMQ
-
-1. Crea un broker en **Amazon MQ for RabbitMQ** (o levanta `rabbitmq:3-management` en Docker).
-2. En `.env`: `MESSAGING_PROVIDER=rabbit` + `RABBITMQ_HOST`, `RABBITMQ_PORT` (5671 con TLS en Amazon MQ), `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_SSL=true`.
-3. Reinicia el BFF. Al arrancar crea el exchange `informe` y las colas `informe` y `db-informe`; los `@RabbitListener` hacen el trabajo de las Lambdas. No se toca código.
+Evidencia: logs de ambas Lambdas en CloudWatch, mensajes en las colas, fila en `registro_informe`, informe en `GENERADO` y el correo recibido.
 
 ## Estructura
 
@@ -157,10 +137,10 @@ src/main/java/cl/goldenoddjobs/bff/
 ├── config/        SecurityConfig, ApiSecretFilter
 ├── controller/    Health, Informe, Notice, Notificacion, ApiExceptionHandler
 ├── dto/           InformeEvent, InformeRequest, NoticeRequest
-├── messaging/     InformePublisher (puerto) + Sns/Rabbit (adaptadores) + listeners Rabbit
+├── messaging/     InformePublisher (puerto) + Sns/Rabbit (adaptadores)
 ├── model/         Informe, Notificacion, EstadoInforme
-├── repository/    InformeRepository, NotificacionRepository
+├── repository/
 └── service/       InformeService, NoticeService, InformeGenerador
-lambdas/           lambda-a-generar-informe, lambda-b-notificar, _test
-db/schema.sql      tablas de Supabase
+lambdas/           lambda-1-registrar-solicitud, lambda-2-generar-informe, _test, _obsoleto
+db/schema.sql
 ```

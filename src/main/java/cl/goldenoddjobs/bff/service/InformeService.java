@@ -27,14 +27,11 @@ public class InformeService {
         this.generador = generador;
     }
 
-    /**
-     * Registra el informe como PENDIENTE y publica el evento. No espera el resultado:
-     * el controlador responde 202 de inmediato.
-     */
-    public Informe solicitar(String sub, String email, String tipoInforme) {
+    public Informe solicitar(String sub, String nombre, String email, String tipoInforme) {
         Informe informe = new Informe();
         informe.setEventId(UUID.randomUUID());
         informe.setSolicitanteSub(sub);
+        informe.setSolicitanteNombre(nombre);
         informe.setEmail(email);
         informe.setTipoInforme(tipoInforme == null || tipoInforme.isBlank() ? TIPO_POR_DEFECTO : tipoInforme);
         informe.setEstado(EstadoInforme.PENDIENTE);
@@ -46,6 +43,7 @@ public class InformeService {
                 InformeEvent.TIPO_INFORME_SOLICITADO,
                 informe.getId(),
                 sub,
+                nombre,
                 email,
                 informe.getTipoInforme(),
                 informe.getCreadoEn());
@@ -66,7 +64,6 @@ public class InformeService {
                 : repository.findBySolicitanteSubOrderByCreadoEnDesc(sub);
     }
 
-    /** Idempotente: si el broker reentrega el mensaje, no se regenera un informe ya generado. */
     public void generar(UUID eventId) {
         repository.findByEventId(eventId).ifPresent(informe -> {
             if (informe.getEstado() == EstadoInforme.GENERADO) {

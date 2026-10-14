@@ -1,12 +1,8 @@
--- Golden-Oddjobs BFF — tablas de informes y notificaciones (Supabase / PostgreSQL)
--- Ejecutar UNA vez en Supabase > SQL Editor ANTES de levantar el BFF.
--- (Hibernate también las crea con ddl-auto=update, pero la Lambda A usa la API REST de Supabase
---  y necesita que existan desde el inicio.)
-
 create table if not exists informe (
     id              bigserial primary key,
     event_id        uuid        not null unique,
     solicitante_sub varchar(255) not null,
+    solicitante_nombre varchar(255),
     email           varchar(255),
     tipo_informe    varchar(255),
     estado          varchar(20) not null default 'PENDIENTE',
@@ -15,9 +11,22 @@ create table if not exists informe (
     generado_en     timestamptz
 );
 
+-- Si la tabla informe ya existía de antes, agrega la columna nueva
+alter table informe add column if not exists solicitante_nombre varchar(255);
+
+-- Lambda 1 escribe aquí quién pidió cada informe y cuándo
+create table if not exists registro_informe (
+    id              bigserial primary key,
+    event_id        uuid         not null unique,
+    usuario_nombre  varchar(255) not null,
+    usuario_email   varchar(255),
+    fecha_solicitud timestamptz  not null,
+    registrado_en   timestamptz  not null default now()
+);
+
 create table if not exists notificacion (
     id               bigserial primary key,
-    event_id         uuid         not null unique,   -- idempotencia: un evento = una notificación
+    event_id         uuid         not null unique,  
     destinatario_sub varchar(255) not null,
     tipo             varchar(255),
     titulo           varchar(255),
@@ -29,7 +38,7 @@ create table if not exists notificacion (
 create index if not exists idx_informe_solicitante on informe (solicitante_sub, creado_en desc);
 create index if not exists idx_notificacion_destinatario on notificacion (destinatario_sub, creada_en desc);
 
--- Seguridad: el acceso público (anon key) queda bloqueado. El BFF entra como rol "postgres" y la
--- Lambda A con la service_role key; ambos ignoran RLS.
+
 alter table informe       enable row level security;
 alter table notificacion  enable row level security;
+alter table registro_informe enable row level security;

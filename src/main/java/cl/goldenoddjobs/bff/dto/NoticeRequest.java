@@ -6,7 +6,6 @@ import jakarta.validation.constraints.Size;
 
 import java.util.UUID;
 
-/** Cuerpo que envía la Lambda B a POST /api/notice. */
 public class NoticeRequest {
 
     @NotNull

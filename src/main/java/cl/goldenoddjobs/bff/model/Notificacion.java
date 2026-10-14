@@ -12,7 +12,6 @@ public class Notificacion {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Mismo eventId del evento original: evita notificaciones duplicadas si el broker reentrega. */
     @Column(name = "event_id", nullable = false, unique = true)
     private UUID eventId;
 

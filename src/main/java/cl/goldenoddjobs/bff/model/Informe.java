@@ -12,16 +12,17 @@ public class Informe {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Identificador del evento publicado en el broker (idempotencia). */
     @Column(name = "event_id", nullable = false, unique = true)
     private UUID eventId;
 
     @Column(name = "solicitante_sub", nullable = false)
     private String solicitanteSub;
 
+    @Column(name = "solicitante_nombre")
+    private String solicitanteNombre;
+
     private String email;
 
-    /** Tipo de informe pedido, p. ej. RESUMEN_SOLICITUDES. */
     @Column(name = "tipo_informe")
     private String tipoInforme;
 
@@ -43,6 +44,8 @@ public class Informe {
     public void setEventId(UUID eventId) { this.eventId = eventId; }
     public String getSolicitanteSub() { return solicitanteSub; }
     public void setSolicitanteSub(String solicitanteSub) { this.solicitanteSub = solicitanteSub; }
+    public String getSolicitanteNombre() { return solicitanteNombre; }
+    public void setSolicitanteNombre(String solicitanteNombre) { this.solicitanteNombre = solicitanteNombre; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
     public String getTipoInforme() { return tipoInforme; }
