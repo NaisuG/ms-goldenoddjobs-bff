@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/** Adaptador RabbitMQ / Amazon MQ: publica en el exchange fanout "informe". */
 @Component
 @ConditionalOnProperty(name = "messaging.provider", havingValue = "rabbit")
 public class RabbitInformePublisher implements InformePublisher {

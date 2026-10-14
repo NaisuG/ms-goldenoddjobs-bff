@@ -19,10 +19,7 @@ public class NoticeService {
         this.repository = repository;
     }
 
-    /**
-     * Guarda la notificación. Idempotente por eventId: SQS/Rabbit pueden entregar un mensaje más de una vez.
-     * @return true si se creó, false si ya existía (duplicado ignorado)
-     */
+
     public boolean registrar(NoticeRequest req) {
         if (repository.existsByEventId(req.getEventId())) {
             return false;
@@ -39,11 +36,10 @@ public class NoticeService {
             repository.save(n);
             return true;
         } catch (DataIntegrityViolationException e) {
-            return false; // otra entrega concurrente ganó la carrera
+            return false;
         }
     }
 
-    /** Versión para el modo RabbitMQ, donde el evento llega directo al BFF. */
     public boolean registrarDesdeEvento(InformeEvent evento) {
         NoticeRequest req = new NoticeRequest();
         req.setEventId(evento.eventId());

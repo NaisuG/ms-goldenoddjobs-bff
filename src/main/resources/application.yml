@@ -15,7 +15,6 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: https://cognito-idp.${AWS_REGION:us-east-1}.amazonaws.com/${COGNITO_USER_POOL_ID}
-  # Solo se usa si messaging.provider=rabbit (Amazon MQ o RabbitMQ local)
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -30,9 +29,6 @@ cognito:
 aws:
   region: ${AWS_REGION:us-east-1}
 
-# ---- Broker "plug and play": cambia solo esta propiedad (variable MESSAGING_PROVIDER) ----
-#   sns    -> publica en un topic SNS; SNS hace fanout a 2 colas SQS; 2 Lambdas las consumen
-#   rabbit -> publica en el exchange fanout "informe"; 2 colas; 2 listeners dentro del BFF
 messaging:
   provider: ${MESSAGING_PROVIDER:sns}
   sns:
@@ -43,8 +39,6 @@ messaging:
     queue-db: db-informe
 
 bff:
-  # Secreto compartido: lo inyecta API Gateway y lo usan las Lambdas para llamar a /api/notice
   api-secret: ${API_SECRET}
-  # true = TODA ruta /api/** (menos /api/health) exige el header x-api-secret (EC2 solo accesible vía Gateway)
   enforce-secret-on-all: ${BFF_ENFORCE_SECRET_ON_ALL:false}
   cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

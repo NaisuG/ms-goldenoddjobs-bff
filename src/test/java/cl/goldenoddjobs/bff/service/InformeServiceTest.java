@@ -39,7 +39,7 @@ class InformeServiceTest {
 
     @Test
     void solicitarGuardaPendienteYPublicaElMismoEventId() {
-        Informe informe = service.solicitar("sub-1", "a@b.cl", null);
+        Informe informe = service.solicitar("sub-1", "Ana Admin", "a@b.cl", null);
 
         assertEquals(EstadoInforme.PENDIENTE, informe.getEstado());
         assertEquals("RESUMEN_GENERAL", informe.getTipoInforme());
@@ -48,6 +48,8 @@ class InformeServiceTest {
         verify(publisher).publicar(captor.capture());
         assertEquals(informe.getEventId(), captor.getValue().eventId());
         assertEquals("sub-1", captor.getValue().solicitanteSub());
+        assertEquals("Ana Admin", captor.getValue().solicitanteNombre());
+        assertEquals("a@b.cl", captor.getValue().email());
         assertEquals(InformeEvent.TIPO_INFORME_SOLICITADO, captor.getValue().tipo());
     }
 
@@ -55,7 +57,7 @@ class InformeServiceTest {
     void siElBrokerFallaElInformeQuedaEnErrorYSePropagaLaExcepcion() {
         doThrow(new MensajeriaException("caído", null)).when(publisher).publicar(any());
 
-        assertThrows(MensajeriaException.class, () -> service.solicitar("sub-1", null, "X"));
+        assertThrows(MensajeriaException.class, () -> service.solicitar("sub-1", null, null, "X"));
 
         ArgumentCaptor<Informe> captor = ArgumentCaptor.forClass(Informe.class);
         verify(repo, times(2)).save(captor.capture());

@@ -18,7 +18,6 @@ public class HealthController {
         this.publisher = publisher;
     }
 
-    /** Público: prueba la cadena Front -> API Gateway -> BFF. */
     @GetMapping("/health")
     public Map<String, Object> health() {
         return Map.of(
