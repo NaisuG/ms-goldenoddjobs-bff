@@ -10,12 +10,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
-/**
- * Valida el header x-api-secret.
- * - /api/notice: SIEMPRE lo exige (lo llama la Lambda B, sin usuario/JWT).
- * - resto de /api/** (menos /api/health): solo si bff.enforce-secret-on-all=true, para que el BFF
- *   únicamente acepte tráfico que pasó por API Gateway (que inyecta el header).
- */
 public class ApiSecretFilter extends OncePerRequestFilter {
 
     public static final String HEADER = "x-api-secret";
@@ -35,7 +29,6 @@ public class ApiSecretFilter extends OncePerRequestFilter {
         boolean requiere = path.equals("/api/notice")
                 || (enforceOnAll && path.startsWith("/api/") && !path.equals("/api/health"));
 
-        // OPTIONS (preflight CORS) nunca lleva el header
         if (requiere && !"OPTIONS".equalsIgnoreCase(request.getMethod()) && !secretoValido(request)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
@@ -50,6 +43,6 @@ public class ApiSecretFilter extends OncePerRequestFilter {
         if (recibido == null || secret.length == 0) {
             return false;
         }
-        return MessageDigest.isEqual(secret, recibido.getBytes(StandardCharsets.UTF_8)); // tiempo constante
+        return MessageDigest.isEqual(secret, recibido.getBytes(StandardCharsets.UTF_8));
     }
 }

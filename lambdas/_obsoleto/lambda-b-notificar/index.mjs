@@ -1,10 +1,3 @@
-// Lambda B — "Notificar"
-// Disparada por la cola SQS B (suscrita al mismo topic SNS). Por cada evento hace un
-// POST a /api/notice de la PROPIA app (vía API Gateway) con el header x-api-secret.
-//
-// Node.js 20: fetch global, sin dependencias.
-// Variables de entorno: NOTICE_URL (https://<api-id>.execute-api.us-east-1.amazonaws.com/api/notice), API_SECRET
-
 const { NOTICE_URL, API_SECRET } = process.env;
 
 export function parseEvento(body) {
@@ -24,7 +17,6 @@ export async function procesar(evento) {
       mensaje: `Tu informe ${evento.tipoInforme} (#${evento.informeId}) fue procesado.`,
     }),
   });
-  // 201 = creada, 200 = duplicado ignorado por el BFF (ambos son éxito)
   if (!res.ok) {
     throw new Error(`/api/notice respondió ${res.status}: ${await res.text()}`);
   }

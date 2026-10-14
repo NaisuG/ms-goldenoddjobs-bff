@@ -12,10 +12,7 @@ import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.PublishRequest;
 import software.amazon.awssdk.services.sns.model.PublishResponse;
 
-/**
- * Adaptador AWS: publica en un topic SNS. SNS hace fanout a las dos colas SQS suscritas
- * (cola A -> Lambda A, cola B -> Lambda B).
- */
+
 @Component
 @ConditionalOnProperty(name = "messaging.provider", havingValue = "sns", matchIfMissing = true)
 public class SnsInformePublisher implements InformePublisher {

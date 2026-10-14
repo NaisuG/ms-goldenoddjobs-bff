@@ -49,12 +49,11 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .csrf(AbstractHttpConfigurer::disable)
-            // El filtro NO es un @Bean (evita que Spring Boot lo registre dos veces)
             .addFilterBefore(new ApiSecretFilter(apiSecret, enforceSecretOnAll), BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health").permitAll()
-                // /api/notice no lleva JWT: lo protege ApiSecretFilter (x-api-secret)
                 .requestMatchers("/api/notice").permitAll()
+                .requestMatchers("/api/informes").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
@@ -69,7 +68,6 @@ public class SecurityConfig {
 
         OAuth2TokenValidator<Jwt> conIssuerYExpiracion = JwtValidators.createDefaultWithIssuer(issuerUri);
 
-        // Los access token de Cognito no traen "aud": se valida client_id + token_use
         OAuth2TokenValidator<Jwt> conAudiencia = token -> {
             String tokenUse = token.getClaimAsString("token_use");
             String clientId = token.getClaimAsString("client_id");

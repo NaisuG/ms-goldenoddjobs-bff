@@ -8,10 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Topología RabbitMQ del diagrama: un exchange fanout "informe" con dos colas
- * ("informe" y "db-informe"). Solo se crea si messaging.provider=rabbit.
- */
+
 @Configuration
 @ConditionalOnProperty(name = "messaging.provider", havingValue = "rabbit")
 public class RabbitConfig {

@@ -23,12 +23,13 @@ public class InformeController {
         this.informeService = informeService;
     }
 
-    /** Responde 202 de inmediato: el informe se genera de forma asíncrona (SNS -> SQS -> Lambda). */
     @PostMapping("/informes")
     public ResponseEntity<Map<String, Object>> solicitar(@RequestBody(required = false) @Valid InformeRequest body,
                                                          @AuthenticationPrincipal Jwt jwt) {
         String tipo = body == null ? null : body.getTipoInforme();
-        Informe informe = informeService.solicitar(jwt.getSubject(), emailDe(jwt), tipo);
+        String email = emailDe(body, jwt);
+        String nombre = nombreDe(body, jwt, email);
+        Informe informe = informeService.solicitar(jwt.getSubject(), nombre, email, tipo);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
                 "mensaje", "Solicitud recibida con éxito",
                 "informeId", informe.getId(),
@@ -43,9 +44,31 @@ public class InformeController {
         return informeService.listar(jwt.getSubject(), admin);
     }
 
-    /** El access token de Cognito no trae "email": se usa "username" como respaldo. */
-    private String emailDe(Jwt jwt) {
-        String email = jwt.getClaimAsString("email");
+    private String emailDe(InformeRequest body, Jwt jwt) {
+        String delToken = jwt.getClaimAsString("email");
+        if (esCorreo(delToken)) {
+            return delToken;
+        }
+        String delFront = body == null ? null : body.getEmail();
+        if (esCorreo(delFront)) {
+            return delFront;
+        }
+        String username = jwt.getClaimAsString("username");
+        return esCorreo(username) ? username : null;
+    }
+
+    private String nombreDe(InformeRequest body, Jwt jwt, String email) {
+        if (body != null && body.getNombre() != null && !body.getNombre().isBlank()) {
+            return body.getNombre().trim();
+        }
+        String delToken = jwt.getClaimAsString("name");
+        if (delToken != null && !delToken.isBlank()) {
+            return delToken;
+        }
         return email != null ? email : jwt.getClaimAsString("username");
+    }
+
+    private boolean esCorreo(String valor) {
+        return valor != null && valor.contains("@");
     }
 }
