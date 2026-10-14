@@ -1,0 +1,5 @@
+# Evita el ruido CRLF/LF entre Windows y Linux (EC2)
+* text=auto
+*.sh text eol=lf
+*.mjs text eol=lf
+Dockerfile text eol=lf
